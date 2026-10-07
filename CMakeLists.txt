@@ -28,6 +28,9 @@ set(ABSL_BUILD_TESTING OFF CACHE BOOL "Build Abseil's own tests")
 set(ABSL_ENABLE_INSTALL OFF CACHE BOOL "Install Abseil")
 add_subdirectory("${ABSEIL_SOURCE_DIR}" "${CMAKE_BINARY_DIR}/third_party/abseil-cpp" EXCLUDE_FROM_ALL)
 
+# CLion may resolve unused headers in a directory-level or unrelated target context.
+include_directories("${ABSEIL_SOURCE_DIR}")
+
 add_library(onejson INTERFACE)
 add_library(onejson::onejson ALIAS onejson)
 target_include_directories(onejson INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
