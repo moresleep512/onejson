@@ -10,8 +10,8 @@
 #include <variant>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "Number.hpp"
+#include "absl/container/flat_hash_map.h"
 
 class JsonValue
 {
@@ -20,25 +20,23 @@ public:
     using Object = absl::flat_hash_map<std::string, JsonValue>;
     using Storage = std::variant<std::monostate, bool, Number, std::string, Array, Object>;
 
-private:
     Storage value_;
 
 public:
     JsonValue() = default;
     JsonValue(std::nullptr_t) noexcept {}
 
-    JsonValue(const char* value)
-        : value_(value ? std::string{value} : throw std::invalid_argument{"Null JSON string"})
+    JsonValue(const char* value) : value_(value ? std::string{value} : throw std::invalid_argument{"Null JSON string"})
     {
     }
 
     template <typename T>
-        requires (!std::same_as<std::remove_cvref_t<T>, JsonValue> && std::constructible_from<Storage, T&&>)
+        requires(!std::same_as<std::remove_cvref_t<T>, JsonValue> && std::constructible_from<Storage, T&&>)
     JsonValue(T&& value) : value_(std::forward<T>(value))
     {
     }
 
-    bool is_null() const noexcept { return std::holds_alternative<std::monostate>(value_); }
+    [[nodiscard]] bool is_null() const noexcept { return std::holds_alternative<std::monostate>(value_); }
 
     JsonValue& operator[](std::string_view key)
     {
@@ -47,10 +45,7 @@ public:
         return std::get<Object>(value_)[key];
     }
 
-    const JsonValue& operator[](std::string_view key) const
-    {
-        return std::get<Object>(value_).at(key);
-    }
+    const JsonValue& operator[](std::string_view key) const { return std::get<Object>(value_).at(key); }
 
     JsonValue& operator[](std::size_t index)
     {
@@ -64,10 +59,7 @@ public:
         return array[index];
     }
 
-    const JsonValue& operator[](std::size_t index) const
-    {
-        return std::get<Array>(value_).at(index);
-    }
+    const JsonValue& operator[](std::size_t index) const { return std::get<Array>(value_).at(index); }
 
     template <typename T>
     T& get()

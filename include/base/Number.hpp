@@ -194,7 +194,7 @@ public:
     {
     }
 
-    const std::string& raw() const noexcept { return value_; }
+    [[nodiscard]] const std::string& raw() const noexcept { return value_; }
 
     template <typename T>
         requires is_numeric_v<T>

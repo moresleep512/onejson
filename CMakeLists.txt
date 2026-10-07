@@ -35,7 +35,7 @@ add_library(onejson INTERFACE)
 add_library(onejson::onejson ALIAS onejson)
 target_include_directories(onejson INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
 target_compile_features(onejson INTERFACE cxx_std_23)
-target_link_libraries(onejson INTERFACE absl::base absl::strings absl::flat_hash_map)
+target_link_libraries(onejson INTERFACE absl::base absl::strings absl::flat_hash_map absl::status absl::statusor)
 
 if(BUILD_TESTING)
     set(BUILD_GMOCK OFF CACHE BOOL "Build GoogleMock")

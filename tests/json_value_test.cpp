@@ -97,4 +97,4 @@ namespace
         EXPECT_THROW(static_cast<void>(array[std::numeric_limits<std::size_t>::max()]), std::out_of_range);
         EXPECT_TRUE(array.get<JsonValue::Array>().empty());
     }
-}
+} // namespace
