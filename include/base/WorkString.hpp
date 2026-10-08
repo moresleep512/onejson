@@ -1,14 +1,45 @@
 #pragma once
 #include <cerrno>
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include "absl/status/status.h"
 #include "absl/status/statusor.h"
 
 
 inline absl::StatusOr<const char*> read_to_value(const std::string& s)
 {
     const char* v = s.c_str();
+    const auto invalid_utf8 = [](std::size_t pos)
+    {
+        return absl::InvalidArgumentError("Invalid UTF-8 at byte " + std::to_string(pos));
+    };
+    std::size_t pos = 0;
+    while (pos < s.size())
+    {
+        const auto first = static_cast<unsigned char>(v[pos]);
+        if (first < 0x80)
+        {
+            ++pos;
+            continue;
+        }
+        const std::size_t length = first >= 0xc2 && first <= 0xdf ? 2 :
+            first >= 0xe0 && first <= 0xef ? 3 : first >= 0xf0 && first <= 0xf4 ? 4 : 0;
+        if (length == 0 || s.size() - pos < length)
+            return invalid_utf8(pos);
+        for (std::size_t index = 1; index < length; ++index)
+        {
+            const auto byte = static_cast<unsigned char>(v[pos + index]);
+            if ((byte & 0xc0) != 0x80)
+                return invalid_utf8(pos);
+        }
+        const auto second = static_cast<unsigned char>(v[pos + 1]);
+        if ((first == 0xe0 && second < 0xa0) || (first == 0xed && second >= 0xa0) ||
+            (first == 0xf0 && second < 0x90) || (first == 0xf4 && second >= 0x90))
+            return invalid_utf8(pos);
+        pos += length;
+    }
 
     return v;
 }
@@ -47,5 +78,4 @@ inline absl::StatusOr<std::string> path_to_string(const std::string& filepath)
         return absl::DataLossError("Cannot read JSON file: " + filepath);
     }
 }
-
 

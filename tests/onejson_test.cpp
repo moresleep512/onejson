@@ -322,6 +322,39 @@ namespace
         ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "Invalid JSON value");
     }
 
+    TEST(WorkStringTest, ReportsInvalidUtf8AtSequenceStart)
+    {
+        for (const auto& prefix : {std::string{}, std::string("A\xe4\xb8\xad") + '\0'})
+        {
+            for (const auto& bytes : {std::string("\x80"), std::string("\xbf"), std::string("\xc0\xaf"),
+                                      std::string("\xc1\xbf"), std::string("\xc2"), std::string("\xc2\x7f"),
+                                      std::string("\xe2"), std::string("\xe2\x82"), std::string("\xe2\x28\xa1"),
+                                      std::string("\xe2\x82\x7f"), std::string("\xe0\x80\x80"),
+                                      std::string("\xed\xa0\x80"), std::string("\xf0"), std::string("\xf0\x90"),
+                                      std::string("\xf0\x90\x80"), std::string("\xf0\x90\x80\x7f"),
+                                      std::string("\xf0\x80\x80\x80"), std::string("\xf4\x90\x80\x80"),
+                                      std::string("\xf5\x80\x80\x80"), std::string("\xff")})
+            {
+                const std::string content = prefix + bytes;
+                SCOPED_TRACE(testing::PrintToString(content));
+                const auto result = read_to_value(content);
+                ASSERT_FALSE(result.ok());
+                EXPECT_EQ(result.status().code(), absl::StatusCode::kInvalidArgument);
+                EXPECT_EQ(result.status().message(), "Invalid UTF-8 at byte " + std::to_string(prefix.size()));
+            }
+        }
+    }
+
+    TEST(WorkStringTest, BorrowsUtf8BoundaryCodePoints)
+    {
+        const std::string content = "\x7f\xc2\x80\xdf\xbf\xe0\xa0\x80\xed\x9f\xbf\xee\x80\x80\xef\xbf\xbf"
+                                    "\xf0\x90\x80\x80\xf4\x8f\xbf\xbf";
+        const auto result = read_to_value(content);
+        ASSERT_TRUE(result.ok()) << result.status();
+        EXPECT_EQ(*result, content.c_str());
+        EXPECT_EQ(std::string_view(*result, content.size()), std::string_view(content));
+    }
+
     TEST_F(JsonInitTest, BorrowsOriginalBytesWithoutSplittingCharacters)
     {
         const std::string content = std::string("A\xe4\xb8\xad\xf0\x9f\x98\x80") + '\0' + "tail";

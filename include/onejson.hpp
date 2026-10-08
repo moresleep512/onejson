@@ -27,10 +27,6 @@ class Json
         {
             return absl::InvalidArgumentError(message + " at byte " + std::to_string(pos));
         };
-        const auto invalid_utf8 = [](std::size_t begin)
-        {
-            return absl::InvalidArgumentError("Invalid UTF-8 at byte " + std::to_string(begin));
-        };
         const auto skip_space = [&]
         {
             while (pos < size && (content[pos] == ' ' || content[pos] == '\t' ||
@@ -66,33 +62,9 @@ class Json
                     return absl::OkStatus();
                 if (ch != '\\')
                 {
-                    const auto byte = static_cast<unsigned char>(ch);
-                    if (byte < 0x20)
+                    if (static_cast<unsigned char>(ch) < 0x20)
                         return invalid("Unescaped control character in string");
-                    if (byte < 0x80)
-                    {
-                        buffer += ch;
-                        continue;
-                    }
-                    const auto begin = pos - 1;
-                    const unsigned remaining = byte >= 0xc2 && byte <= 0xdf ? 1 :
-                        byte >= 0xe0 && byte <= 0xef ? 2 : byte >= 0xf0 && byte <= 0xf4 ? 3 : 0;
-                    if (remaining == 0 || size - pos < remaining)
-                        return invalid_utf8(begin);
-                    unsigned code = byte & ((1u << (6 - remaining)) - 1);
-                    for (unsigned index = 0; index < remaining; ++index)
-                    {
-                        const auto next = static_cast<unsigned char>(content[pos + index]);
-                        if ((next & 0xc0) != 0x80)
-                            return invalid_utf8(begin);
-                        code = (code << 6) | (next & 0x3f);
-                    }
-                    const unsigned minimum = remaining == 1 ? 0x80 : remaining == 2 ? 0x800 : 0x10000;
-                    if (code < minimum || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff))
-                        return invalid_utf8(begin);
                     buffer += ch;
-                    for (unsigned index = 0; index < remaining; ++index)
-                        buffer += content[pos++];
                     continue;
                 }
                 if (pos == size)
