@@ -206,6 +206,34 @@ namespace
         EXPECT_EQ(json["exponent"].get<Number>().raw(), "1e100000");
     }
 
+    TEST_F(JsonInitTest, ReusesBufferAcrossLongKeysAndMixedValues)
+    {
+        const std::string key(96, 'k');
+        const std::string text(256, 's');
+        const std::string number(128, '9');
+        Write("{\"" + key + "\":[\"" + text + "\"," + number +
+              ",true,false,null,\"\",0,{\"\":\"tail\"}],\"after\":\"done\"}");
+        const Json json(file.string());
+        const auto& items = json[key].get<JsonValue::Array>();
+        ASSERT_EQ(items.size(), 8);
+        EXPECT_EQ(items[0].get<std::string>(), text);
+        EXPECT_EQ(items[1].get<Number>().raw(), number);
+        EXPECT_TRUE(items[2].get<bool>());
+        EXPECT_FALSE(items[3].get<bool>());
+        EXPECT_TRUE(items[4].is_null());
+        EXPECT_TRUE(items[5].get<std::string>().empty());
+        EXPECT_EQ(items[6].get<Number>().raw(), "0");
+        EXPECT_EQ(items[7][""].get<std::string>(), "tail");
+        EXPECT_EQ(json["after"].get<std::string>(), "done");
+    }
+
+    TEST_F(JsonInitTest, ReportsInvalidLiteralAfterMovingBuffer)
+    {
+        const std::string literal = std::string(128, '9') + 'x';
+        Write("{\"key\":" + literal + "}");
+        ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "Invalid JSON value: " + literal);
+    }
+
     TEST_F(JsonInitTest, RejectsDuplicateKeysInTheSameObject)
     {
         for (const char* content : {R"({"key":1,"key":2})", R"({"key":1,"\u006bey":2})",
@@ -232,7 +260,7 @@ namespace
     {
         SCOPED_TRACE(GetParam());
         Write(GetParam());
-        ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "at token");
+        ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "at byte");
     }
 
     INSTANTIATE_TEST_SUITE_P(
@@ -253,23 +281,62 @@ namespace
         for (const auto& bytes : {std::string("\x80"), std::string("\xc0\xaf"), std::string("\xc2"),
                                   std::string("\xe2\x28\xa1"), std::string("\xe0\x80\x80"),
                                   std::string("\xed\xa0\x80"), std::string("\xf0\x80\x80\x80"),
-                                  std::string("\xf4\x90\x80\x80"), std::string("\xf5\x80\x80\x80")})
+                                  std::string("\xf4\x90\x80\x80"), std::string("\xf5\x80\x80\x80"),
+                                  std::string("\xe2"), std::string("\xe2\x82"), std::string("\xf0"),
+                                  std::string("\xf0\x90"), std::string("\xf0\x90\x80"), std::string("\xff")})
         {
-            const auto result = read_to_value(bytes);
-            ASSERT_FALSE(result.ok());
-            EXPECT_EQ(result.status().code(), absl::StatusCode::kInvalidArgument);
             Write("{\"key\":\"" + bytes + "\"}");
-            ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "UTF-8 at byte");
+            ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "UTF-8 at byte 8");
+            Write("{\"" + bytes + "\":1}");
+            ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "UTF-8 at byte 2");
+            Write("{\"key\":\"" + bytes);
+            ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "UTF-8 at byte 8");
         }
     }
 
-    TEST_F(JsonInitTest, SplitsUtf8CharactersAndAdvancesPosition)
+    TEST_F(JsonInitTest, PreservesUtf8BoundaryCodePoints)
     {
-        const auto result = read_to_value("A\xe4\xb8\xad\xf0\x9f\x98\x80");
+        const std::string text = "\xc2\x80\xdf\xbf\xe0\xa0\x80\xed\x9f\xbf\xee\x80\x80\xef\xbf\xbf"
+                                 "\xf0\x90\x80\x80\xf4\x8f\xbf\xbf";
+        Write("{\"" + text + "\":\"" + text + "\"}");
+        const Json json(file.string());
+        EXPECT_EQ(json[text].get<std::string>(), text);
+    }
+
+    TEST_F(JsonInitTest, ReportsByteOffsetAfterUtf8)
+    {
+        const std::string content = "{\"\xe4\xb8\xad\":1,}";
+        Write(content);
+        ExpectError(file.string(), absl::StatusCode::kInvalidArgument,
+                    "Expected a quoted string at byte " + std::to_string(content.size() - 1));
+    }
+
+    TEST_F(JsonInitTest, RejectsRawNullBytesWithoutTruncatingInput)
+    {
+        Write(std::string("{\"key\":\"raw") + '\0' + "byte\"}");
+        ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "Unescaped control character");
+        Write(std::string("{}") + '\0' + "trailing");
+        ExpectError(file.string(), absl::StatusCode::kInvalidArgument,
+                    "Unexpected content after JSON root at byte 2");
+        Write(std::string("{\"key\":1") + '\0' + "2}");
+        ExpectError(file.string(), absl::StatusCode::kInvalidArgument, "Invalid JSON value");
+    }
+
+    TEST_F(JsonInitTest, BorrowsOriginalBytesWithoutSplittingCharacters)
+    {
+        const std::string content = std::string("A\xe4\xb8\xad\xf0\x9f\x98\x80") + '\0' + "tail";
+        const auto result = read_to_value(content);
         ASSERT_TRUE(result.ok()) << result.status();
-        ASSERT_EQ(result->size(), 3);
-        EXPECT_EQ((*result)[0], "A");
-        EXPECT_EQ((*result)[1], "\xe4\xb8\xad");
-        EXPECT_EQ((*result)[2], "\xf0\x9f\x98\x80");
+        EXPECT_EQ(*result, content.c_str());
+        EXPECT_EQ(std::string_view(*result, content.size()), std::string_view(content));
+    }
+
+    TEST_F(JsonInitTest, BorrowsEmptyInput)
+    {
+        const std::string content;
+        const auto result = read_to_value(content);
+        ASSERT_TRUE(result.ok()) << result.status();
+        EXPECT_EQ(*result, content.c_str());
+        EXPECT_EQ((*result)[0], '\0');
     }
 } // namespace

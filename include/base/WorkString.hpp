@@ -3,57 +3,13 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include "absl/container/inlined_vector.h"
 #include "absl/status/statusor.h"
 
 
-inline std::string next_char(const std::string& s, size_t pos)
+inline absl::StatusOr<const char*> read_to_value(const std::string& s)
 {
-    uint8_t c = s[pos];
-    int len;
-    if (c < 0x80)len = 1;
-    else if ((c >> 5) == 0b110)len = 2;
-    else if ((c >> 4)==0b1110)len = 3;
-    else if ((c >> 3)==0b11110)len = 4;
-    else
-    {
-        pos++;
-        return "?";
-    }
-    std::string ch =s.substr(pos, len);
-    pos+=len;
-    return ch;
-}
+    const char* v = s.c_str();
 
-inline absl::StatusOr<absl::InlinedVector<std::string, 16>> read_to_value(const std::string& s)
-{
-    absl::InlinedVector<std::string, 16> v;
-    size_t pos = 0;
-    while (pos < s.size())
-    {
-        const auto begin = pos;
-        const auto first = static_cast<unsigned char>(s[pos]);
-        const size_t length = first < 0x80 ? 1 : first >= 0xc2 && first <= 0xdf ? 2 :
-            first >= 0xe0 && first <= 0xef ? 3 : first >= 0xf0 && first <= 0xf4 ? 4 : 0;
-        if (length == 0 || length > s.size() - pos)
-            return absl::InvalidArgumentError("Invalid UTF-8 at byte " + std::to_string(begin));
-        for (size_t index = 1; index < length; ++index)
-        {
-            const auto byte = static_cast<unsigned char>(s[pos + index]);
-            if (byte < 0x80 || byte > 0xbf)
-                return absl::InvalidArgumentError("Invalid UTF-8 at byte " + std::to_string(pos + index));
-        }
-        if (length >= 3)
-        {
-            const auto second = static_cast<unsigned char>(s[pos + 1]);
-            if ((first == 0xe0 && second < 0xa0) || (first == 0xed && second >= 0xa0) ||
-                (first == 0xf0 && second < 0x90) || (first == 0xf4 && second >= 0x90))
-                return absl::InvalidArgumentError("Invalid UTF-8 at byte " + std::to_string(begin));
-        }
-        auto ch = next_char(s, pos);
-        pos += ch.size();
-        v.push_back(std::move(ch));
-    }
     return v;
 }
 
